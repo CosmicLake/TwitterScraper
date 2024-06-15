@@ -63,6 +63,7 @@ async function fetchTweets(cursor = null, collectedTweets = []) {
         collectedTweets.push(tweetData);
       } else if (entry.content.entryType === "TimelineTimelineModule") {
         const moduleItems = entry.content.items;
+        const moduleId = entry.entryId; // Use entryId as moduleId
         for (const moduleItem of moduleItems) {
           const itemType = moduleItem.item.itemContent.itemType;
           if (itemType !== "TimelineTweet") {
@@ -75,6 +76,7 @@ async function fetchTweets(cursor = null, collectedTweets = []) {
             tweetId: tweet.rest_id,
             text: tweet.legacy.full_text,
             timestamp: tweet.legacy.created_at,
+            moduleId: moduleId,
           };
           collectedTweets.push(tweetData);
         }
@@ -112,11 +114,23 @@ function writeTweetsToFile(tweets) {
   const firstTweetDate = tweets[0].timestamp;
   const lastTweetDate = tweets[tweets.length - 1].timestamp;
 
-  let fileContent = `Scraped ${tweets.length} tweets from ${firstTweetDate} to ${lastTweetDate}\n\n`;
-  fileContent += `Scraped on: ${now.toISOString()}\n`;
+  let fileContent = `Scraped ${tweets.length} tweets from ${firstTweetDate} to ${lastTweetDate}\n`;
+  fileContent += `Scraped on: ${now.toISOString()}\n\n`;
 
+  let currentModuleId = null;
   for (const tweet of tweets) {
-    fileContent += `Tweet ID: ${tweet.tweetId}\nDate: ${tweet.timestamp}\nContent: ${tweet.text}\n\n`;
+    if (tweet.moduleId) {
+      if (tweet.moduleId !== currentModuleId) {
+        if (currentModuleId !== null) {
+          fileContent += "\n"; // Add a new line between different modules
+        }
+        currentModuleId = tweet.moduleId;
+      }
+      fileContent += `  Tweet ID: ${tweet.tweetId}\n  Date: ${tweet.timestamp}\n  Content: ${tweet.text}\n\n`;
+    } else {
+      currentModuleId = null;
+      fileContent += `Tweet ID: ${tweet.tweetId}\nDate: ${tweet.timestamp}\nContent: ${tweet.text}\n\n`;
+    }
   }
 
   fs.writeFile(filename, fileContent, (err) => {
