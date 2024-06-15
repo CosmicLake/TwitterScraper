@@ -17,7 +17,7 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchTweets(cursor = null, collectedTweets = []) {
+async function fetchTweets(cursor = null, collectedTweets = [], tweetIds = {}) {
   const variables = {
     userId: userId,
     count: 20, // this doesn't seem to respond to changes
@@ -60,6 +60,11 @@ async function fetchTweets(cursor = null, collectedTweets = []) {
           text: tweet.legacy.full_text,
           timestamp: tweet.legacy.created_at,
         };
+        if (tweetIds[tweetData.tweetId]) {
+          console.log("Duplicate tweet ID found:", tweetData.tweetId);
+          continue;
+        }
+        tweetIds[tweetData.tweetId] = true;
         collectedTweets.push(tweetData);
       } else if (entry.content.entryType === "TimelineTimelineModule") {
         const moduleItems = entry.content.items;
@@ -78,6 +83,14 @@ async function fetchTweets(cursor = null, collectedTweets = []) {
             timestamp: tweet.legacy.created_at,
             moduleId: moduleId,
           };
+          if (tweetIds[tweetData.tweetId]) {
+            console.log(
+              "Duplicate [module] tweet ID found:",
+              tweetData.tweetId,
+            );
+            continue;
+          }
+          tweetIds[tweetData.tweetId] = true;
           collectedTweets.push(tweetData);
         }
       }
@@ -101,6 +114,7 @@ async function fetchTweets(cursor = null, collectedTweets = []) {
         return await fetchTweets(
           bottomCursorEntry.content.value,
           collectedTweets,
+          tweetIds,
         );
       }
     }
@@ -109,7 +123,7 @@ async function fetchTweets(cursor = null, collectedTweets = []) {
   } catch (error) {
     console.error("Error fetching tweets:", error);
     await delay(delayTime);
-    return await fetchTweets(cursor, collectedTweets);
+    return await fetchTweets(cursor, collectedTweets, tweetIds);
   }
 }
 
