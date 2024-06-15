@@ -69,6 +69,7 @@ async function fetchTweets(cursor = null, collectedTweets = [], tweetIds = {}) {
       } else if (entry.content.entryType === "TimelineTimelineModule") {
         const moduleItems = entry.content.items;
         const moduleId = entry.entryId; // Use entryId as moduleId
+        let priorTweetId = null;
         for (const moduleItem of moduleItems) {
           const itemType = moduleItem.item.itemContent.itemType;
           if (itemType !== "TimelineTweet") {
@@ -82,7 +83,13 @@ async function fetchTweets(cursor = null, collectedTweets = [], tweetIds = {}) {
             text: tweet.legacy.full_text,
             timestamp: tweet.legacy.created_at,
             moduleId: moduleId,
+            priorTweetId: priorTweetId,
           };
+
+          // don't skip setting priorTweetId; basically tweets are generally in a single thread
+          // but if someone has replied to another individual tweet in that thread,
+          // it will branch into a new module I believe
+          priorTweetId = tweetData.tweetId;
           if (tweetIds[tweetData.tweetId]) {
             console.log(
               "Duplicate [module] tweet ID found:",
@@ -152,6 +159,10 @@ function writeTweetsToFile(tweets) {
         }
         currentModuleId = tweet.moduleId;
       }
+
+      fileContent += tweet.priorTweetId
+        ? `  Prior tweet id in module: ${tweet.priorTweetId}\n`
+        : `  First module tweet\n`;
       fileContent += `  Tweet ID: ${tweet.tweetId}\n  Date: ${tweet.timestamp}\n  Content: ${tweet.text}\n\n`;
     } else {
       currentModuleId = null;
