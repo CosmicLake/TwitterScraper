@@ -10,7 +10,7 @@ const headers = {
 };
 
 const userId = "1496397897742491653"; // Your user ID
-const tweetCount = 1; // Number of tweets to fetch
+const tweetCount = 50; // Number of tweets to fetch
 const delayTime = 20000; // 20 seconds in milliseconds
 
 function delay(ms) {
@@ -20,7 +20,7 @@ function delay(ms) {
 async function fetchTweets(cursor = null, collectedTweets = []) {
   const variables = {
     userId: userId,
-    count: Math.min(tweetCount - collectedTweets.length, 20),
+    count: 20, // this doesn't seem to respond to changes
     includePromotedContent: true,
     withQuickPromoteEligibilityTweetFields: true,
     withVoice: true,
@@ -84,12 +84,24 @@ async function fetchTweets(cursor = null, collectedTweets = []) {
     }
 
     if (collectedTweets.length < tweetCount) {
-      const cursorEntry = entries.find(
-        (entry) => entry.content.entryType === "TimelineTimelineCursor",
+      const bottomCursorEntry = entries.find(
+        (entry) =>
+          entry.content.entryType === "TimelineTimelineCursor" &&
+          entry.content.cursorType === "Bottom",
       );
-      if (cursorEntry) {
+      if (bottomCursorEntry) {
+        console.log(
+          `Fetching more tweets... after a delay to prevent rate limiting. This will take ${
+            delayTime / 1000
+          } seconds. Current timestamp: ${new Date().toISOString()}.\nBottom cursor: ${
+            bottomCursorEntry.content.value
+          }. Current tweet count: ${collectedTweets.length} / ${tweetCount}`,
+        );
         await delay(delayTime);
-        return await fetchTweets(cursorEntry.content.value, collectedTweets);
+        return await fetchTweets(
+          bottomCursorEntry.content.value,
+          collectedTweets,
+        );
       }
     }
 
