@@ -19,11 +19,38 @@ const pool = new Pool({
 });
 
 const userId = "1496397897742491653"; // Your user ID
-const tweetCount = 50; // Number of tweets to fetch
-const delayTime = 20000; // 20 seconds in milliseconds
+const tweetCount = 70; // Number of tweets to fetch
+const delayTime = 10000; // in milliseconds
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function insertTweetsToDB(tweets) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const tweet of tweets) {
+      const queryText = `INSERT INTO tweets(tweet_id, text, timestamp, prior_tweet_id, module_id)
+                         VALUES($1, $2, $3, $4, $5)
+                         ON CONFLICT (tweet_id) DO NOTHING;`;
+      const values = [
+        tweet.tweetId,
+        tweet.text,
+        tweet.timestamp,
+        tweet.priorTweetId || null,
+        tweet.moduleId || null,
+      ];
+      await client.query(queryText, values);
+    }
+    await client.query("COMMIT");
+    console.log(`Inserted ${tweets.length} tweets into the database.`);
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 async function fetchTweets(cursor = null, collectedTweets = [], tweetIds = {}) {
@@ -55,6 +82,8 @@ async function fetchTweets(cursor = null, collectedTweets = [], tweetIds = {}) {
         (instruction) => instruction.type === "TimelineAddEntries",
       ).entries;
 
+    let newTweets = [];
+
     for (const entry of entries) {
       if (entry.content.entryType === "TimelineTimelineItem") {
         const itemType = entry.content.itemContent.itemType;
@@ -75,6 +104,7 @@ async function fetchTweets(cursor = null, collectedTweets = [], tweetIds = {}) {
         }
         tweetIds[tweetData.tweetId] = true;
         collectedTweets.push(tweetData);
+        newTweets.push(tweetData);
       } else if (entry.content.entryType === "TimelineTimelineModule") {
         const moduleItems = entry.content.items;
         const moduleId = entry.entryId; // Use entryId as moduleId
@@ -108,8 +138,14 @@ async function fetchTweets(cursor = null, collectedTweets = [], tweetIds = {}) {
           }
           tweetIds[tweetData.tweetId] = true;
           collectedTweets.push(tweetData);
+          newTweets.push(tweetData);
         }
       }
+    }
+
+    // Insert new tweets to the database asynchronously
+    if (newTweets.length > 0) {
+      await insertTweetsToDB(newTweets);
     }
 
     if (collectedTweets.length < tweetCount) {
@@ -143,34 +179,6 @@ async function fetchTweets(cursor = null, collectedTweets = [], tweetIds = {}) {
   }
 }
 
-async function insertTweetsToDB(tweets) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    for (const tweet of tweets) {
-      const queryText = `INSERT INTO tweets(tweet_id, text, timestamp, prior_tweet_id, module_id)
-                         VALUES($1, $2, $3, $4, $5)
-                         ON CONFLICT (tweet_id) DO NOTHING;`;
-      const values = [
-        tweet.tweetId,
-        tweet.text,
-        tweet.timestamp,
-        tweet.priorTweetId || null,
-        tweet.moduleId || null,
-      ];
-      await client.query(queryText, values);
-    }
-    await client.query("COMMIT");
-    console.log(`Inserted ${tweets.length} tweets into the database.`);
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
-  }
-}
-
 (async () => {
-  const tweets = await fetchTweets();
-  await insertTweetsToDB(tweets);
+  await fetchTweets();
 })();
