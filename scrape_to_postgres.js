@@ -1,6 +1,7 @@
 require("dotenv").config();
 const axios = require("axios");
 const fs = require("fs");
+const { Pool } = require("pg");
 const { features } = require("./config");
 
 const headers = {
@@ -8,6 +9,14 @@ const headers = {
   "x-csrf-token": process.env.CSRF_TOKEN,
   Cookie: process.env.COOKIE,
 };
+
+const pool = new Pool({
+  user: process.env.PGUSER,
+  host: process.env.PGHOST,
+  database: process.env.PGDATABASE,
+  password: process.env.PGPASSWORD,
+  port: process.env.PGPORT,
+});
 
 const userId = "1496397897742491653"; // Your user ID
 const tweetCount = 50; // Number of tweets to fetch
@@ -134,52 +143,34 @@ async function fetchTweets(cursor = null, collectedTweets = [], tweetIds = {}) {
   }
 }
 
-function writeTweetsToFile(tweets) {
-  const now = new Date();
-  const timestamp = now.toISOString().replace(/[:.]/g, "-");
-  const filename = `output/scraped_${timestamp}.txt`;
-
-  if (tweets.length === 0) {
-    console.log("No tweets fetched.");
-    return;
-  }
-
-  const firstTweetDate = tweets[0].timestamp;
-  const lastTweetDate = tweets[tweets.length - 1].timestamp;
-
-  let fileContent = `Scraped ${tweets.length} tweets from ${firstTweetDate} to ${lastTweetDate}\n`;
-  fileContent += `Scraped on: ${now.toISOString()}\n\n`;
-
-  let currentModuleId = null;
-  for (const tweet of tweets) {
-    if (tweet.moduleId) {
-      if (tweet.moduleId !== currentModuleId) {
-        if (currentModuleId !== null) {
-          fileContent += "\n"; // Add a new line between different modules
-        }
-        currentModuleId = tweet.moduleId;
-      }
-
-      fileContent += tweet.priorTweetId
-        ? `  Prior tweet id in module: ${tweet.priorTweetId}\n`
-        : `  First module tweet\n`;
-      fileContent += `  Tweet ID: ${tweet.tweetId}\n  Date: ${tweet.timestamp}\n  Content: ${tweet.text}\n\n`;
-    } else {
-      currentModuleId = null;
-      fileContent += `Tweet ID: ${tweet.tweetId}\nDate: ${tweet.timestamp}\nContent: ${tweet.text}\n\n`;
+async function insertTweetsToDB(tweets) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const tweet of tweets) {
+      const queryText = `INSERT INTO tweets(tweet_id, text, timestamp, prior_tweet_id, module_id)
+                         VALUES($1, $2, $3, $4, $5)
+                         ON CONFLICT (tweet_id) DO NOTHING;`;
+      const values = [
+        tweet.tweetId,
+        tweet.text,
+        tweet.timestamp,
+        tweet.priorTweetId || null,
+        tweet.moduleId || null,
+      ];
+      await client.query(queryText, values);
     }
+    await client.query("COMMIT");
+    console.log(`Inserted ${tweets.length} tweets into the database.`);
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
   }
-
-  fs.writeFile(filename, fileContent, (err) => {
-    if (err) {
-      console.error("Error writing to file:", err);
-    } else {
-      console.log(`Tweets saved to ${filename}`);
-    }
-  });
 }
 
 (async () => {
   const tweets = await fetchTweets();
-  writeTweetsToFile(tweets);
+  await insertTweetsToDB(tweets);
 })();
